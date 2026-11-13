@@ -1,0 +1,16 @@
+Исправление только для одного файла: src/components/RunTable.tsx
+
+1. Откройте корневую папку проекта soup-training-monitor (там, где находится package.json).
+2. Извлеките содержимое ZIP прямо в эту папку. Архив уже содержит правильный относительный путь src/components/RunTable.tsx.
+3. Подтвердите замену файла.
+4. Убедитесь, что дата изменения файла soup-training-monitor/src/components/RunTable.tsx обновилась.
+5. Выполните:
+   npm test -- --run tests/accessibility.test.tsx
+   npm run build
+6. Если всё прошло:
+   git add src/components/RunTable.tsx
+   git commit -m "Fix run table keyboard accessibility"
+   git push origin main
+
+Если тесты снова упадут, пришлите полный вывод именно команды:
+   npm test -- --run tests/accessibility.test.tsx --reporter=verbose

@@ -9,28 +9,80 @@ import { StatusBadge } from '../components/StatusBadge';
 import { formatRawValue } from '../domain/normalizeData';
 import type { MetricKey } from '../domain/types';
 
+
+interface RawIssueRecord {
+  sortStep: number;
+  step: string;
+  sourceIndex: string;
+  field: string;
+  value: string;
+  issue: string;
+}
+
+const csvCell = (value: string) => `"${value.replaceAll('"', '""')}"`;
 const formatMetric = (value: number | null) => value === null ? 'N/A' : formatRawValue(value);
 const duration = (seconds: number) => `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 
-export function RunDetailsPage() {
+export function RunDetailsPage({ isLight }: { isLight: boolean }) {
   const { runId = '' } = useParams();
   const run = RUNS.find((item) => item.id === runId);
   const { series, loading, error, normalized, metrics } = useRunDetails(runId);
   const [showRecords, setShowRecords] = useState(false);
 
-  const issueRecords = useMemo(() => {
+  const issueRecords = useMemo<RawIssueRecord[]>(() => {
     if (!series || !normalized) return [];
-    const rows: Array<{ step: number; sourceIndex: number; field: string; value: string; issue: string }> = [];
+    const rows: RawIssueRecord[] = [];
     for (const metric of ['loss', 'lr', 'gradNorm'] as MetricKey[]) {
-      for (const sourceIndex of normalized.invalidByMetric[metric].slice(0, 12)) {
-        rows.push({ step: series.step[sourceIndex], sourceIndex, field: metric === 'gradNorm' ? 'grad_norm' : metric, value: formatRawValue(series[metric][sourceIndex]), issue: 'Non-finite value' });
+      const field = metric === 'gradNorm' ? 'grad_norm' : metric;
+      for (const sourceIndex of normalized.invalidByMetric[metric]) {
+        rows.push({
+          sortStep: series.step[sourceIndex], step: formatRawValue(series.step[sourceIndex]),
+          sourceIndex: String(sourceIndex), field,
+          value: formatRawValue(series[metric][sourceIndex]), issue: 'Non-finite value',
+        });
+      }
+      for (const group of normalized.duplicateGroups) {
+        for (const sourceIndex of group.sourceIndices) {
+          rows.push({
+            sortStep: group.step, step: formatRawValue(group.step), sourceIndex: String(sourceIndex), field,
+            value: formatRawValue(series[metric][sourceIndex]), issue: 'Duplicate step',
+          });
+        }
       }
     }
-    for (const group of normalized.duplicateGroups) {
-      group.sourceIndices.forEach((sourceIndex, index) => rows.push({ step: group.step, sourceIndex, field: 'loss', value: formatRawValue(group.values[index]), issue: 'Duplicate step' }));
+    for (const gap of normalized.gaps) {
+      rows.push({
+        sortStep: gap.fromStep, step: `${formatRawValue(gap.fromStep)} → ${formatRawValue(gap.toStep)}`,
+        sourceIndex: `${gap.leftSourceIndex} → ${gap.rightSourceIndex}`, field: 'step',
+        value: `${gap.missingCount} expected step(s) missing`, issue: 'Missing range',
+      });
     }
-    return rows.sort((a, b) => a.step - b.step || a.sourceIndex - b.sourceIndex).slice(0, 30);
+    if (!normalized.isSorted) {
+      rows.push({ sortStep: Number.NEGATIVE_INFINITY, step: '—', sourceIndex: '—', field: 'step', value: 'Stable sorted view applied; source order unchanged', issue: 'Unsorted source order' });
+    }
+    if (series.spikeIndex !== undefined) {
+      const sourceIndex = series.spikeIndex;
+      rows.push({
+        sortStep: series.step[sourceIndex], step: formatRawValue(series.step[sourceIndex]),
+        sourceIndex: String(sourceIndex), field: 'loss', value: formatRawValue(series.loss[sourceIndex]),
+        issue: 'Known planted outlier',
+      });
+    }
+    return rows.sort((a, b) => a.sortStep - b.sortStep || a.sourceIndex.localeCompare(b.sourceIndex));
   }, [series, normalized]);
+
+  const downloadIssueRecords = () => {
+    if (!issueRecords.length || !run) return;
+    const headers = ['step', 'source_index', 'field', 'raw_value', 'issue'];
+    const rows = issueRecords.map((record) => [record.step, record.sourceIndex, record.field, record.value, record.issue]);
+    const csv = [headers, ...rows].map((row) => row.map((cell) => csvCell(cell)).join(',')).join('\r\n');
+    const blobUrl = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = blobUrl;
+    anchor.download = `${run.id}-data-issues.csv`;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 0);
+  };
 
   if (!run) return <div className="page-content"><div className="not-found panel"><h2>Run not found</h2><p>This run ID is not present in the local dataset.</p><Link className="button-primary" to="/">Back to overview</Link></div></div>;
 
@@ -62,16 +114,16 @@ export function RunDetailsPage() {
         <SummaryCard label="INITIAL LOSS" value={formatMetric(metrics.initialLoss)} detail="First finite value by step" />
         <SummaryCard label="LAST FINITE LOSS" value={formatMetric(metrics.lastFiniteLoss)} detail="Not the same as final record" tone={invalidTotal ? 'orange' : 'neutral'} />
         <SummaryCard label="MINIMUM LOSS" value={formatMetric(metrics.minLoss)} detail="Minimum finite observation" tone="green" />
-        <SummaryCard label="CURRENT LR" value={formatMetric(metrics.currentLr)} detail="Last finite reading" />
-        <SummaryCard label="GRAD NORM" value={formatMetric(metrics.currentGradNorm)} detail="Last finite reading" />
-        <SummaryCard label="VALID POINTS" value={metrics.validPoints.toLocaleString()} detail={`${metrics.invalidPoints} rows contain invalid metrics`} />
+        <SummaryCard label="LAST FINITE LR" value={formatMetric(metrics.currentLr)} detail="Last finite reading by step" />
+        <SummaryCard label="LAST FINITE GRAD NORM" value={formatMetric(metrics.currentGradNorm)} detail="Last finite reading by step" />
+        <SummaryCard label="VALID / INVALID" value={`${metrics.validPoints.toLocaleString()} / ${metrics.invalidPoints.toLocaleString()}`} detail="Rows with finite metrics / rows containing non-finite values" />
       </section>
 
       <div className="section-heading"><div><div className="panel-kicker">METRIC TELEMETRY</div><h2>Training curves</h2></div><div className="chart-legend-note"><span className="legend-line" /> Original values <span className="legend-dash" /> Integrity break</div></div>
       <div className="charts-grid">
-        <MetricChart series={series} normalized={normalized} metric="loss" />
-        <MetricChart series={series} normalized={normalized} metric="lr" />
-        <MetricChart series={series} normalized={normalized} metric="gradNorm" />
+        <MetricChart series={series} normalized={normalized} metric="loss" isLight={isLight} />
+        <MetricChart series={series} normalized={normalized} metric="lr" isLight={isLight} />
+        <MetricChart series={series} normalized={normalized} metric="gradNorm" isLight={isLight} />
       </div>
 
       <div className="detail-bottom-grid">
@@ -95,8 +147,16 @@ export function RunDetailsPage() {
       </div>
 
       <section className="panel records-panel" id="raw-records">
-        <button className="records-toggle" onClick={() => setShowRecords((value) => !value)} aria-expanded={showRecords}><div><div className="panel-kicker">TRACEABILITY</div><h2>Raw issue records <span className="inline-count">{issueRecords.length}</span></h2><p>Original source indices and values for non-finite or duplicate observations.</p></div><ChevronDown size={18} className={showRecords ? 'chevron-open' : ''} /></button>
-        {showRecords && <div className="table-scroll issue-table-wrap"><table className="runs-table issue-table"><thead><tr><th>STEP</th><th>SOURCE INDEX</th><th>FIELD</th><th>RAW VALUE</th><th>ISSUE</th></tr></thead><tbody>{issueRecords.length ? issueRecords.map((record) => <tr key={`${record.sourceIndex}-${record.field}`}><td className="mono">{formatRawValue(record.step)}</td><td className="mono">{record.sourceIndex.toLocaleString()}</td><td>{record.field}</td><td className="mono metric-invalid">{record.value}</td><td><span className="issue-tag">{record.issue}</span></td></tr>) : <tr><td colSpan={5}>No raw issue records for this run.</td></tr>}</tbody></table></div>}
+        <button className="records-toggle" onClick={() => setShowRecords((value) => !value)} aria-expanded={showRecords} aria-controls="raw-issue-table">
+          <div><div className="panel-kicker">TRACEABILITY</div><h2>Raw issue records <span className="inline-count">{issueRecords.length}</span></h2><p>Original non-finite values, duplicate observations, missing ranges, ordering issues and the known anomaly.</p></div>
+          <ChevronDown size={18} className={showRecords ? 'chevron-open' : ''} />
+        </button>
+        <div id="raw-issue-table" className="issue-table-wrap" hidden={!showRecords}>
+        {showRecords && <>
+          <div className="issue-table-toolbar"><span>Showing {Math.min(50, issueRecords.length)} of {issueRecords.length} records. CSV export contains every detected issue.</span><button type="button" className="button-secondary" onClick={downloadIssueRecords} disabled={issueRecords.length === 0}><Download size={13} /> Export all CSV</button></div>
+          <div className="table-scroll"><table className="runs-table issue-table"><thead><tr><th scope="col">STEP / RANGE</th><th scope="col">SOURCE INDEX</th><th scope="col">FIELD</th><th scope="col">RAW VALUE / DETAIL</th><th scope="col">ISSUE</th></tr></thead><tbody>{issueRecords.length ? issueRecords.slice(0, 50).map((record, index) => <tr key={`${record.issue}-${record.sourceIndex}-${record.field}-${index}`}><td className="mono">{record.step}</td><td className="mono">{record.sourceIndex}</td><td>{record.field}</td><td className="mono metric-invalid">{record.value}</td><td><span className="issue-tag">{record.issue}</span></td></tr>) : <tr><td colSpan={5}>No raw issue records for this run.</td></tr>}</tbody></table></div>
+        </>}
+        </div>
       </section>
 
       <div className="detail-actions"><span><Info size={13} /> Values are synthetic and deterministic. No model training is performed.</span><button className="button-secondary" onClick={() => setShowRecords(true)}><Download size={14} /> Inspect records</button><a className="button-primary" href="https://trysoup.dev" target="_blank" rel="noreferrer">About Soup <ArrowUpRight size={14} /></a></div>

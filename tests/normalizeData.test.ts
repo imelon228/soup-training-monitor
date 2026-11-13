@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeSeries, sourceIndexAt } from '../src/domain/normalizeData';
+import { assertSeriesShape, normalizeSeries, sourceIndexAt } from '../src/domain/normalizeData';
 import type { TrainingSeries } from '../src/domain/types';
 
 function fixture(overrides: Partial<TrainingSeries> = {}): TrainingSeries {
@@ -47,6 +47,18 @@ describe('normalizeSeries', () => {
     const normalized = normalizeSeries(series);
     expect(normalized.gaps).toEqual([expect.objectContaining({ fromStep: 2, toStep: 7, missingCount: 4 })]);
     expect(series.step.length).toBe(5);
+  });
+
+  it('rejects mismatched metric lengths and non-finite step coordinates', () => {
+    const mismatched = fixture({ lr: Float64Array.from([0.01]) });
+    expect(() => assertSeriesShape(mismatched)).toThrow(/Metric \"lr\"/);
+    const invalidStep = fixture({ step: Float64Array.from([0, 1, Number.POSITIVE_INFINITY, 3, 4]) });
+    expect(() => normalizeSeries(invalidStep)).toThrow(/Step at source index 2 must be finite/);
+  });
+
+  it('rejects non-positive expected step intervals', () => {
+    const invalidInterval = fixture({ expectedStepInterval: -1 });
+    expect(() => normalizeSeries(invalidInterval)).toThrow(/expectedStepInterval must be a finite positive number/);
   });
 
   it('handles an empty dataset', () => {

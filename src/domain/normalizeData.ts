@@ -2,6 +2,28 @@ import type { DuplicateGroup, GapRange, MetricKey, NormalizedSeries, TrainingSer
 
 const METRICS: MetricKey[] = ['loss', 'lr', 'gradNorm'];
 
+/**
+ * Validate invariants required for an honest X/Y plot. Non-finite metric values
+ * are allowed and reported; non-finite steps and misaligned arrays are not,
+ * because they make the X coordinate or row relationship undefined.
+ */
+export function assertSeriesShape(series: TrainingSeries): void {
+  const pointCount = series.step.length;
+  for (const metric of METRICS) {
+    if (series[metric].length !== pointCount) {
+      throw new RangeError(`Metric "${metric}" has ${series[metric].length} values, but step has ${pointCount}.`);
+    }
+  }
+  if (!Number.isFinite(series.expectedStepInterval) || series.expectedStepInterval <= 0) {
+    throw new RangeError('expectedStepInterval must be a finite positive number.');
+  }
+  for (let index = 0; index < pointCount; index += 1) {
+    if (!Number.isFinite(series.step[index])) {
+      throw new RangeError(`Step at source index ${index} must be finite.`);
+    }
+  }
+}
+
 export function valueArray(series: TrainingSeries, metric: MetricKey): Float64Array {
   return series[metric];
 }
@@ -15,6 +37,7 @@ export function stepAt(series: TrainingSeries, normalized: NormalizedSeries, sor
 }
 
 export function normalizeSeries(series: TrainingSeries): NormalizedSeries {
+  assertSeriesShape(series);
   const pointCount = series.step.length;
   if (pointCount === 0) {
     return {
@@ -55,7 +78,7 @@ export function normalizeSeries(series: TrainingSeries): NormalizedSeries {
 
   const duplicateGroups: DuplicateGroup[] = [];
   const gaps: GapRange[] = [];
-  const expected = Math.max(1, series.expectedStepInterval || 1);
+  const expected = series.expectedStepInterval;
   let minStep = Number.POSITIVE_INFINITY;
   let maxStep = Number.NEGATIVE_INFINITY;
   for (let position = 0; position < pointCount;) {

@@ -1,41 +1,52 @@
-# Technical Note — Soup Training Run Monitor
+﻿# Technical Note вЂ” Soup Training Run Monitor
 
 ## Architecture
 
-The app is a client-side React + TypeScript + Vite SPA. The Overview reads a small deterministic manifest; run data is created only when a user opens a detail route. A Web Worker generates each selected series, keeping the one-million-point allocation off the main UI thread. Apache ECharts uses Canvas rendering for Loss, Learning Rate and Gradient Norm. There is no backend, external data API or real model training.
+Client-side React + TypeScript + Vite SPA. The overview reads a deterministic 20-run manifest. Detailed series are generated on demand in a Web Worker; the million-point run uses four `Float64Array` buffers. Apache ECharts renders the three metrics with Canvas. There is no backend, cloud API, real GPU workload or live training telemetry.
 
-## Data integrity
+## Data integrity contract
 
-The generator creates exactly 20 runs with a fixed seed. It deliberately includes NaN, positive/negative Infinity, duplicate and unsorted steps, missing ranges, and a one-million-point series with one planted loss spike at source index 500,000. The source uses Float64Array fields and is not mutated by normalization or chart reduction.
+Before normalization, the data layer requires equal lengths for `step`, `loss`, `lr` and `gradNorm`, finite step coordinates, and a finite positive `expectedStepInterval`. Non-finite metric readings remain supported diagnostic values. They are never coerced to zero and are counted by metric and original source index.
 
-Normalization performs a stable ordering by step only when the input is not already sorted. It records duplicate groups, invalid source indices and gaps based on each series' declared expected step interval. Non-finite metric values remain non-finite in source memory and become null line points in the plotted view; they are never coerced to zero. Duplicate observations are retained as separate marker records rather than silently averaged. Gaps create a line break; no interpolated data is added.
+Unsorted steps use a stable ordering view; the source arrays are not mutated. Duplicate observations remain separate records and scatter markers. A single null line break is inserted at the duplicate X coordinate; values are not averaged and no epsilon is added to the source step. Missing ranges produce a null visual break marker only; no metric observation is interpolated. The raw-issue table previews at most 50 rows and the CSV action exports all detected issue records.
 
-## Downsampling
+## Chart truthfulness and downsampling
 
-The chart uses viewport-aware Min-Max bucket reduction. For the visible step range, it scans buckets and keeps each bucket's finite minimum and maximum, plus visible endpoints. Invalid positions, duplicate groups, gap boundaries and the known anomaly index are retained as integrity events. The output retains original source indices. When the planted spike is inside the viewport, the spike index is explicitly included in addition to the per-bucket extrema. This prevents a narrow, isolated event from disappearing due to stride or average sampling.
+Charts use Canvas. ECharts built-in sampling is disabled by omitting its `sampling` option (the shared `lineSeries` policy keeps `smooth: false` and `connectNulls: false`); `connectNulls: false` and no smoothing are applied. The viewport-aware Min-Max reducer scans visible buckets and retains each bucket's finite minimum and maximum plus visible endpoints. It also carries all visible invalid and duplicate observations, gap boundaries and the known planted Loss spike. Source indices are retained for traceability. The one-million-point test run contains a deterministic spike at index `500,000` with Loss `7.25`; the spike is explicitly retained whenever its source step is in the current viewport.
+
+Duplicate source indices are marked with a typed mask during a reduction pass, avoiding a nested linear search through every duplicate group for every source point. The X-axis and Y-axis are named. Axis ticks use compact labels with more precision than rounded whole-k/M labels; tooltips use the shortest decimal representation that round-trips to the original JavaScript number.
 
 ## Silent-failure controls
 
-- A request-scoped AbortController terminates the worker after route changes.
-- A latest-request gate prevents an older completion from replacing the currently selected run.
-- Dates are stored as UTC ISO strings and formatted with the browser's locale.
-- Linear scale is the default; no log transform or automatic smoothing is applied.
-- Invalids, duplicates and gaps are surfaced in an integrity panel and raw issue-record table.
+- Worker cancellation and `LatestRequestGate` prevent a stale request from replacing the current route selection.
+- Timestamps are stored as UTC ISO strings and displayed using the viewer's current locale/time zone.
+- There is no smoothing toggle and no Log Scale control. The charts remain linear; zero and negative values are not silently discarded or transformed.
+- Integrity summaries, chart accessible summaries and downloadable raw issue records expose source-data caveats.
 
-## Tests and known limitations
+## Automated checks
 
-The authored Vitest suite is designed to cover seeded 20-run generation, exact million-point generation, midpoint spike preservation over multiple viewports, non-finite values, stable sort, duplicate groups, gaps, summary metrics, formatting and request ordering. The suite was not executed in the assembly environment because npm dependencies could not be installed. Tests validate the data transformations, not the user's perception of a rendered anomaly. Browser/OS/GPU-specific performance, screen-reader quality, visual contrast in every environment and every possible asynchronous interleaving still require manual verification.
+The remaining Vitest suite contains **47 test cases across 10 files**. It includes 48 combinations of viewport width and zoom range around the one-million-point spike, per-bucket extrema retention, finite-only duplicate scatter coordinates, invalid-value handling for all metrics, duplicate and gap behaviour, source typed-array immutability, input shape validation, locale/time-zone formatting, worker resolution, abort and worker-error cleanup, plus a hook-level out-of-order response test. The project owner reported the earlier baseline as 22 tests passing across 6 files. The remaining 47-test suite must be run again; do not treat the earlier result as proof that the new tests passed. Three optional UI interaction tests (`aria-sort`, Ctrl/Cmd+K, and Enter/Space row activation) were removed from automated testing after repeated failures in the current test setup. Their functionality remains in the component but must be verified manually and disclosed as manual coverage.
 
-**Performance evidence:** Chrome DevTools CPU-throttling ×4 traces and tab-memory measurements have not been captured in this runtime. Do not treat build/test success as a substitute. Follow `docs/performance/README.md`, record baseline and optimized measurements on the same machine, then attach the trace/screenshots before submission.
+## Accessibility and presentation
+
+Dark and light chart palettes use theme-aware axis and tooltip colours. Static WCAG contrast calculations for the light-theme text/accent tokens against the sidebar background are at least 4.66:1; browser-level inspection at the target viewport sizes remains required. Chart data is also exposed through a structured accessible summary table.
+
+## What tests do NOT catch
+
+A unit test can confirm that the spike's source index survives reduction, but cannot guarantee human visibility at every display size or browser zoom. Formatter tests cannot prove visual readability. Unit tests do not cover every ECharts/browser/GPU rendering combination or every worker scheduling interleaving. Synthetic data cannot determine whether a real model should be stopped. Passing tests and a passing build are not substitutes for Chrome Performance traces and memory measurements.
+
+## Performance evidence
+
+The app emits User Timing measures `soup:worker:request-to-message` (worker setup, generation and transfer), `soup:zoom:event-to-next-paint` and `soup:hover:event-to-next-paint` (interaction-to-two-animation-frame proxies). Chrome DevTools Performance traces remain the authoritative evidence. CPU throttling Г—4, before/after render and interaction timings, and one-million-point tab memory must be captured on the project owner's device and saved under `docs/performance/`. Current browser evidence is **not measured**; see `docs/performance/README.md` and `docs/performance/measurement-log.md`.
 
 ## Verdict: DON'T SHIP (evidence gate)
 
-The core demo implementation and automated tests are ready for local review, but a submission claiming full compliance is not ready until browser-level Performance traces, ×4 measurements and manual responsive/accessibility checks are attached. First priority: run the measurement protocol, resolve any interaction or memory regressions, then update the verdict based on observed evidence.
+The feature and data-integrity implementation is stronger, but a final `SHIP` verdict requires the expanded test suite to pass, a successful Vercel production build, responsive/accessibility inspection, and real browser Performance traces under Г—4 CPU throttling. Do not claim measured performance before those artifacts exist.
 
 ## Reflection
 
-What surprised me most was that the difficult part was not drawing three curves, but preserving what a curve is allowed to claim after reducing a million observations. A naive stride or average would make the chart cheaper while making the evidence weaker, so the implementation keeps per-bucket extrema and explicitly carries known integrity events into the plotted view. The main remaining concern is browser-level behaviour under CPU throttling and different display sizes; the Node core timings cannot answer that, so the Chrome trace and manual accessibility checks remain a release gate.
+The difficult part is not drawing three lines; it is preserving the meaning of a line after reducing a million observations. A naive stride or average would make rendering cheaper but could hide an important event. The implementation therefore retains per-bucket extrema and explicit integrity events. The remaining uncertainty is browser-level performance and visual perception across devices, which require real traces and manual inspection.
 
 ## AI tool usage
 
-ChatGPT assisted with the initial implementation, code structure, tests and documentation. The domain modules were separately compiled and exercised with Node assertions during assembly. The project owner should independently run the installed test suite, inspect Chrome traces, review the code and be prepared to explain or change the algorithm during the live discussion.
+ChatGPT assisted with project scaffolding, implementation, tests and documentation. The project owner should review the changes, run the complete test/build commands, inspect browser traces and be prepared to explain or modify the algorithm during the live discussion.

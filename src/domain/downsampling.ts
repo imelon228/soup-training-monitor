@@ -37,28 +37,42 @@ export function downsampleMetric(
   options: DownsampleOptions = {},
 ): DownsampleResult {
   const { pixelWidth = 1_000, pointsPerPixel = 2 } = options;
+  if (!Number.isFinite(pixelWidth) || pixelWidth <= 0) {
+    throw new RangeError('pixelWidth must be a finite positive number.');
+  }
+  if (!Number.isFinite(pointsPerPixel) || pointsPerPixel <= 0) {
+    throw new RangeError('pointsPerPixel must be a finite positive number.');
+  }
   if (normalized.pointCount === 0) {
     return { line: [], duplicates: [], invalids: [], sourcePointCount: 0, renderedPointCount: 0, spikePreserved: false };
   }
 
-  const start = Math.max(normalized.minStep, options.startStep ?? normalized.minStep);
-  const end = Math.min(normalized.maxStep, options.endStep ?? normalized.maxStep);
+  const requestedStart = options.startStep ?? normalized.minStep;
+  const requestedEnd = options.endStep ?? normalized.maxStep;
+  if (!Number.isFinite(requestedStart) || !Number.isFinite(requestedEnd)) {
+    throw new RangeError('Viewport startStep and endStep must be finite numbers.');
+  }
+  const start = Math.max(normalized.minStep, requestedStart);
+  const end = Math.min(normalized.maxStep, requestedEnd);
   if (start > end) {
-    return { line: [], duplicates: [], invalids: [], sourcePointCount: normalized.pointCount, renderedPointCount: 0, spikePreserved: false };
+    return { line: [], duplicates: [], invalids: [], sourcePointCount: 0, renderedPointCount: 0, spikePreserved: false };
   }
 
   const fromPosition = lowerBound(series, normalized, start);
   const toPosition = upperBound(series, normalized, end);
   if (fromPosition >= toPosition) {
-    return { line: [], duplicates: [], invalids: [], sourcePointCount: normalized.pointCount, renderedPointCount: 0, spikePreserved: false };
+    return { line: [], duplicates: [], invalids: [], sourcePointCount: 0, renderedPointCount: 0, spikePreserved: false };
   }
 
   const metricValues = valueArray(series, metric);
   const visibleCount = toPosition - fromPosition;
   const bucketCount = Math.max(1, Math.min(visibleCount, Math.floor(Math.max(80, pixelWidth) * pointsPerPixel / 2)));
   const selected = new Set<number>();
-  const duplicateSourceIndices = new Set<number>();
+  const duplicateMask = new Uint8Array(normalized.pointCount);
   const invalidSourceIndices = new Set(normalized.invalidByMetric[metric]);
+  for (const group of normalized.duplicateGroups) {
+    for (const sourceIndex of group.sourceIndices) duplicateMask[sourceIndex] = 1;
+  }
   const gapBreakAfter = new Map<number, number>();
 
   selected.add(sourceIndexAt(normalized, fromPosition));
@@ -76,7 +90,7 @@ export function downsampleMetric(
       if (position >= toPosition) break;
       const sourceIndex = sourceIndexAt(normalized, position);
       if (invalidSourceIndices.has(sourceIndex)) continue;
-      if (normalized.duplicateGroups.some((group) => group.sourceIndices.includes(sourceIndex))) continue;
+      if (duplicateMask[sourceIndex] === 1) continue;
       const value = metricValues[sourceIndex];
       if (!Number.isFinite(value)) continue;
       if (value < minValue) { minValue = value; minIndex = sourceIndex; }
@@ -95,7 +109,6 @@ export function downsampleMetric(
     if (group.step >= start && group.step <= end) {
       for (const sourceIndex of group.sourceIndices) {
         selected.add(sourceIndex);
-        duplicateSourceIndices.add(sourceIndex);
       }
     }
   }
@@ -115,15 +128,20 @@ export function downsampleMetric(
   const duplicates: DownsampleResult['duplicates'] = [];
   const invalids: DownsampleResult['invalids'] = [];
   const line: RenderPoint[] = [];
+  const emittedDuplicateBreaks = new Set<number>();
   for (const sourceIndex of sortedSelected) {
     const step = series.step[sourceIndex];
     const rawValue = metricValues[sourceIndex];
-    if (duplicateSourceIndices.has(sourceIndex)) {
-      const group = normalized.duplicateGroups.find((item) => item.sourceIndices.includes(sourceIndex));
+    if (duplicateMask[sourceIndex] === 1) {
       duplicates.push({ step, value: rawValue, sourceIndex });
-      line.push({ step, value: null, sourceIndex, kind: 'duplicate-break', rawValue });
-      if (group && sourceIndex === group.sourceIndices[group.sourceIndices.length - 1]) {
-        line.push({ step: (step + 0.000001), value: null, sourceIndex, kind: 'duplicate-break' });
+      if (invalidSourceIndices.has(sourceIndex) || !Number.isFinite(rawValue)) {
+        invalids.push({ step, value: rawValue, sourceIndex });
+      }
+      // One null at the duplicate X coordinate breaks the line; every original
+      // observation remains separately available in `duplicates`.
+      if (!emittedDuplicateBreaks.has(step)) {
+        line.push({ step, value: null, sourceIndex, kind: 'duplicate-break' });
+        emittedDuplicateBreaks.add(step);
       }
     } else if (invalidSourceIndices.has(sourceIndex) || !Number.isFinite(rawValue)) {
       invalids.push({ step, value: rawValue, sourceIndex });
@@ -137,7 +155,8 @@ export function downsampleMetric(
     }
   }
 
-  const spikePreserved = series.spikeIndex !== undefined
+  const spikePreserved = metric === 'loss'
+    && series.spikeIndex !== undefined
     && series.step[series.spikeIndex] >= start
     && series.step[series.spikeIndex] <= end
     && selected.has(series.spikeIndex);

@@ -19,7 +19,7 @@
   --text: #f1efe9;
   --text-2: #c5c1b8;
   --muted: #87837a;
-  --muted-2: #656158;
+  --muted-2: #87837a;
   --orange: #f47b48;
   --orange-soft: rgba(244,123,72,.12);
   --green: #84bd83;
@@ -41,21 +41,25 @@
   --line-strong: #d3cec2;
   --text: #24221e;
   --text-2: #4e4a42;
-  --muted: #777168;
-  --muted-2: #969086;
-  --orange: #d85c2e;
+  --muted: #6b665c;
+  --muted-2: #6b665c;
+  --orange: #a3401d;
   --orange-soft: rgba(216,92,46,.1);
-  --green: #3b8a52;
+  --green: #28683b;
   --green-soft: rgba(59,138,82,.1);
-  --red: #b94943;
-  --amber: #9f701e;
-  --blue: #397aa7;
+  --red: #a6423d;
+  --amber: #80520d;
+  --blue: #2d6991;
   --shadow: 0 18px 50px rgba(53,43,23,.07);
 }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); color: var(--text); }
 button, input, select { font: inherit; }
 button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--orange); outline-offset: 3px; }
+.skip-link { position: fixed; left: 12px; top: 8px; z-index: 1000; transform: translateY(-160%); padding: 9px 12px; border-radius: 4px; background: var(--orange); color: #171411; font-size: 12px; font-weight: 700; }
+.skip-link:focus { transform: translateY(0); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 a { color: inherit; text-decoration: none; }
 .mono, code, kbd { font-family: 'DM Mono', 'SFMono-Regular', Consolas, monospace; }
 .app-shell { min-height: 100vh; display: flex; background: var(--bg); }
@@ -238,10 +242,10 @@ kbd { padding: 2px 4px; border: 1px solid var(--line); border-radius: 3px; font-
 .chart-stats { display: flex; align-items: center; gap: 13px; margin: 13px 0 -4px 15px; color: var(--muted-2); font: 8px 'DM Mono', monospace; letter-spacing: .5px; }
 .chart-warning-text { color: var(--amber); }
 .chart-footnote { display: flex; justify-content: space-between; gap: 10px; color: var(--muted-2); font: 8px 'DM Mono', monospace; letter-spacing: .2px; margin: -3px 4px 0; }
-.tip-title { color: var(--orange); border-bottom: 1px solid #393630; padding-bottom: 6px; margin-bottom: 5px; letter-spacing: .7px; }
+.tip-title { color: var(--orange); border-bottom: 1px solid var(--line-strong); padding-bottom: 6px; margin-bottom: 5px; letter-spacing: .7px; }
 .tip-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-top: 4px; }
-.tip-row span { color: #98938a; }
-.tip-row b { color: #f5f2ec; font-weight: 500; }
+.tip-row span { color: var(--muted); }
+.tip-row b { color: var(--text); font-weight: 500; }
 .detail-bottom-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, .8fr); gap: 12px; margin-top: 13px; }
 .integrity-panel { overflow: hidden; }
 .integrity-pill { display: inline-flex; align-items: center; gap: 5px; color: var(--green); border: 1px solid rgba(132,189,131,.2); background: var(--green-soft); padding: 5px 7px; border-radius: 3px; font: 8px 'DM Mono', monospace; letter-spacing: .4px; }
@@ -272,6 +276,13 @@ kbd { padding: 2px 4px; border: 1px solid var(--line); border-radius: 3px; font-
 .records-toggle > svg { color: var(--muted); transition: transform .15s; }
 .records-toggle .chevron-open { transform: rotate(180deg); }
 .issue-table-wrap { border-top: 1px solid var(--line); }
+.issue-table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 18px; color: var(--muted); font-size: 10px; border-bottom: 1px solid var(--line); }
+.issue-table-toolbar button:disabled { opacity: .45; cursor: not-allowed; }
+.chart-accessible-data { margin: 9px 3px 0; border-top: 1px solid var(--line); padding-top: 8px; }
+.chart-accessible-data summary { cursor: pointer; color: var(--muted); font-size: 10px; }
+.chart-accessible-data p { color: var(--muted); font-size: 9px; line-height: 1.5; }
+.accessible-summary-table { min-width: 480px; }
+.chart-accessible-note { color: var(--amber) !important; }
 .issue-table { min-width: 580px; }
 .issue-table td { height: 38px; }
 .issue-tag { color: var(--amber); border: 1px solid rgba(215,170,91,.2); padding: 3px 6px; border-radius: 3px; font: 8px 'DM Mono', monospace; }
@@ -360,4 +371,8 @@ kbd { padding: 2px 4px; border: 1px solid var(--line); border-radius: 3px; font-
   .detail-actions { flex-wrap: wrap; }
   .detail-actions > span { flex: 1 0 100%; }
   .detail-actions .button-secondary, .detail-actions .button-primary { flex: 1; justify-content: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
