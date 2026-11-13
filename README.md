@@ -1,4 +1,5 @@
 ﻿# Soup В· Training Run Monitor
+ Aidyn Yeskendirov!!
 
 A frontend take-home implementation for the Soup Frontend Engineer internship. It is a local, deterministic ML training monitor designed around one rule: **data truthfulness before chart smoothness**.
 
@@ -48,26 +49,6 @@ npm run preview
 
 The suite now contains **47 automated test cases across 10 test files**. Three optional UI interaction tests for `aria-sort`, Ctrl/Cmd+K search focus and Enter activation of a run row were removed from automated testing after repeated failures in the current test setup. The corresponding interactions remain implemented in `src/components/RunTable.tsx` and must be checked manually before submission. Do not claim automated coverage for these three interactions; record this limitation honestly in the hand-in note.
 
-## Vercel deployment
-
-1. Create a GitHub repository and push this project.
-2. Open [Vercel](https://vercel.com/) and choose **Add New в†’ Project**.
-3. Import the GitHub repository.
-4. Use these settings:
-   - Framework preset: **Vite**
-   - Build command: `npm run build`
-   - Output directory: `dist`
-   - Install command: `npm install`
-5. Deploy. `vercel.json` includes an SPA rewrite so direct visits to `/runs/run-020` resolve to `index.html`.
-6. Open the production URL, visit `/runs/run-020`, wait for the worker to generate the one-million-point dataset and check the spike, zoom controls and raw data warnings.
-
-### Vercel CLI alternative
-
-```bash
-npm install -g vercel
-vercel
-vercel --prod
-```
 
 ## Data and correctness notes
 
