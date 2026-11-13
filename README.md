@@ -1,4 +1,5 @@
 # Soup · Training Run Monitor
+Aidyn Yeskendirov, Internship Application
 
 A frontend take-home implementation for the Soup Frontend Engineer internship. It is a local, deterministic ML training monitor designed around one rule: **data truthfulness before chart smoothness**.
 
