@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { loadRunData } from '../data/mockDataService';
 import { normalizeSeries } from '../domain/normalizeData';
 import { calculateRunMetrics } from '../domain/metrics';
+import type { RunMetrics } from '../domain/metrics';
 import { LatestRequestGate } from '../domain/asyncGate';
-import type { NormalizedSeries, RunMetrics, TrainingSeries } from '../domain/types';
+import type { NormalizedSeries, TrainingSeries } from '../domain/types';
 
 interface RunDetailsState {
   series: TrainingSeries | null;
